@@ -10,7 +10,7 @@ import (
 )
 
 func main() {
-	r, _ := os.Open("nitrux.torrent")
+	r, _ := os.Open("bayes.torrent")
 	defer r.Close()
 
 	reader := bufio.NewReader(r)
@@ -22,20 +22,24 @@ func main() {
 	torrent := benconded_torrent.ToTorrentFile()
 	announceURL, _ := url.Parse(torrent.Announce)
 
-	t := utils.Tracker{
-		Host: announceURL.Hostname(),
-		Port: announceURL.Port(),
-	}
+	t := utils.Tracker{AnnounceURL: announceURL}
 
-	err = t.Connect()
+	peers, err := t.Announce(torrent)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	download, err := t.Announce(torrent)
-	if err != nil {
-		log.Fatal(err)
-	}
+	for _, peer := range peers {
+		err = peer.Handshake(torrent)
+		if err != nil {
+			log.Print(err)
+			continue
+		}
 
-	log.Print(download)
+		err = peer.Download(torrent)
+		if err != nil {
+			log.Print(err)
+			continue
+		}
+	}
 }
