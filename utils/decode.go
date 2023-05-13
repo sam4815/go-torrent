@@ -21,6 +21,16 @@ type BencodeTorrent struct {
 	Info     BencodeInfo `bencode:"info"`
 }
 
+type BencodePeer struct {
+	IP   string `bencode:"ip"`
+	Port int    `bencode:"port"`
+}
+
+type BencodeAnnounce struct {
+	Interval int           `bencode:"interval"`
+	Peers    []BencodePeer `bencode:"peers"`
+}
+
 type TorrentFile struct {
 	Announce    string
 	InfoHash    [20]byte
@@ -40,6 +50,18 @@ func Open(r io.Reader) (*BencodeTorrent, error) {
 	}
 
 	return &bto, nil
+}
+
+func Announce(r io.Reader) (*BencodeAnnounce, error) {
+	ba := BencodeAnnounce{}
+	err := bencode.Unmarshal(r, &ba)
+
+	if err != nil {
+		log.Fatal(err)
+		return nil, err
+	}
+
+	return &ba, nil
 }
 
 func (b BencodeTorrent) ToTorrentFile() TorrentFile {
