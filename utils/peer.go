@@ -14,6 +14,7 @@ type Peer struct {
 	IP         net.IP
 	Port       uint16
 	Connection net.Conn
+	Bitfield   Bitfield
 }
 
 func (peer *Peer) Handshake(torrent TorrentFile) error {
@@ -57,30 +58,75 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 	return nil
 }
 
+func (peer Peer) SendMessage(message Message) (Message, error) {
+	log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
+	resp := make([]byte, 2048)
+
+	peer.Connection.Write(message.ToBytes())
+
+	peer.Connection.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, err := peer.Connection.Read(resp)
+
+	if err != nil {
+		log.Print("ERR: ", err)
+		return Message{}, err
+	}
+
+	return ToMessage(bytes.NewReader(resp)), nil
+}
+
+func (peer Peer) GetPiece(index int, length int) ([]byte, error) {
+	piece := make([]byte, 0)
+	offset := 1
+	block_size := 16384
+	num_blocks := 1 + length/block_size
+
+	log.Print("REQ ", num_blocks, " BLOCKS")
+
+	for offset <= num_blocks {
+		log.Print("w")
+		requestMessage := RequestMessage(index, offset, block_size)
+		requestResponse, err := peer.SendMessage(requestMessage)
+		if err != nil {
+			return piece, err
+		}
+		if requestResponse.ID != MsgPiece {
+			time.Sleep(500 * time.Millisecond)
+			continue
+		}
+
+		log.Print("RES ID: ", requestResponse.ID, "RES LEN: ", len(requestResponse.Payload))
+		piece = append(piece, requestResponse.Payload...)
+		time.Sleep(500 * time.Millisecond)
+		offset += 1
+	}
+
+	return piece, nil
+}
+
 func (peer Peer) Download(torrent TorrentFile) error {
-	bitfield := CreateBitfield(torrent.Length)
+	bitfield := CreateBitfield(len(torrent.PieceHash))
 	bitfieldMessage := Message{
 		ID:      MsgBitfield,
 		Payload: bitfield,
 	}
 
-	peer.Connection.Write(bitfieldMessage.Serialize())
+	peer.Connection.Write(bitfieldMessage.ToBytes())
 
-	resp := make([]byte, 2048)
-	bitfieldResponse := ToMessage(bytes.NewReader(resp))
-	log.Print("Length of torrent: ", torrent.Length)
-	for bitfieldResponse.ID == MsgChoke {
-		_, err := peer.Connection.Read(resp)
-		if err != nil {
-			return err
-		}
-
-		bitfieldResponse = ToMessage(bytes.NewReader(resp))
-		log.Print("RESPONSE:", len(bitfieldResponse.Payload))
-		time.Sleep(time.Second * 2)
+	bitfieldResponse, err := peer.SendMessage(bitfieldMessage)
+	if err != nil {
+		return err
 	}
 
-	log.Print("RESPONSE:", bitfieldResponse.ID)
+	peer.Bitfield = bitfieldResponse.Payload
+
+	piece, err := peer.GetPiece(0, torrent.PieceLength)
+	if err != nil {
+		return err
+	}
+
+	log.Print(piece)
+	log.Print("PIECE LENGTH: ", len(piece))
 
 	return nil
 }

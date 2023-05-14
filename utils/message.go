@@ -24,7 +24,7 @@ type Message struct {
 	Payload []byte
 }
 
-func (m Message) Serialize() []byte {
+func (m Message) ToBytes() []byte {
 	buffer := make([]byte, len(m.Payload)+5)
 
 	binary.BigEndian.PutUint32(buffer[0:4], uint32(len(m.Payload)+1)) // message length
@@ -47,4 +47,13 @@ func ToMessage(r io.Reader) Message {
 	io.ReadFull(r, buffer)
 
 	return Message{ID: messageID(buffer[0]), Payload: buffer[1:]}
+}
+
+func RequestMessage(index int, offset int, blockSize int) Message {
+	requestPayload := make([]byte, 12)
+	binary.BigEndian.PutUint32(requestPayload[0:4], uint32(index))
+	binary.BigEndian.PutUint32(requestPayload[4:8], uint32(offset))
+	binary.BigEndian.PutUint32(requestPayload[8:12], uint32(blockSize)) // 16KB
+
+	return Message{ID: MsgRequest, Payload: requestPayload}
 }

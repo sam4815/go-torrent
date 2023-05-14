@@ -3,7 +3,7 @@ package utils
 type Bitfield []byte
 
 func CreateBitfield(length int) Bitfield {
-	bitfieldLength := 1 + (length+7)/8
+	bitfieldLength := (length + 7) / 8
 	return make([]byte, bitfieldLength)
 }
 
