@@ -59,47 +59,74 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 }
 
 func (peer Peer) SendMessage(message Message) (Message, error) {
-	log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
-	resp := make([]byte, 2048)
+	// log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
 
-	peer.Connection.Write(message.ToBytes())
-
-	peer.Connection.SetReadDeadline(time.Now().Add(5 * time.Second))
-	_, err := peer.Connection.Read(resp)
-
+	_, err := peer.Connection.Write(message.ToBytes())
 	if err != nil {
-		log.Print("ERR: ", err)
+		log.Print(err)
 		return Message{}, err
 	}
+	peer.Connection.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 
-	return ToMessage(bytes.NewReader(resp)), nil
+	return ToMessage(peer.Connection), nil
 }
 
 func (peer Peer) GetPiece(index int, length int) ([]byte, error) {
+	blockDataChan := make(chan []byte)
+
 	piece := make([]byte, 0)
-	offset := 1
-	block_size := 16384
-	num_blocks := 1 + length/block_size
+	blockSize := 16384
+	numBlocks := length/blockSize + 1
+	log.Print(length, numBlocks, " BLOCKS")
+	requestCount := make(map[int]int)
+	allRequests := 0
+	failed := 0
 
-	log.Print("REQ ", num_blocks, " BLOCKS")
+	blockIndexChan := make(chan int, numBlocks+1)
 
-	for offset <= num_blocks {
-		log.Print("w")
-		requestMessage := RequestMessage(index, offset, block_size)
-		requestResponse, err := peer.SendMessage(requestMessage)
-		if err != nil {
-			return piece, err
-		}
-		if requestResponse.ID != MsgPiece {
-			time.Sleep(500 * time.Millisecond)
-			continue
-		}
+	for i := 0; i < 1; i++ {
+		go func() {
+			for {
+				then := time.Now()
+				blockIndex, more := <-blockIndexChan
+				requestCount[blockIndex] += 1
+				allRequests += 1
 
-		log.Print("RES ID: ", requestResponse.ID, "RES LEN: ", len(requestResponse.Payload))
-		piece = append(piece, requestResponse.Payload...)
-		time.Sleep(500 * time.Millisecond)
-		offset += 1
+				if !more {
+					return
+				}
+
+				requestMessage := RequestMessage(index, blockIndex, blockSize)
+				// log.Print(requestMessage.ToBytes())
+				responseMessage, err := peer.SendMessage(requestMessage)
+
+				if err != nil || responseMessage.ID != MsgPiece {
+					if err != nil {
+						log.Print(err)
+					}
+					failed += 1
+					blockIndexChan <- blockIndex
+					time_elapsed := time.Since(then)
+					log.Print("FAILURE TOOK ", time_elapsed, responseMessage.ID)
+					continue
+				}
+
+				blockDataChan <- responseMessage.Payload[8:]
+			}
+		}()
 	}
+
+	for i := 0; i < numBlocks; i++ {
+		blockIndexChan <- i
+	}
+
+	for i := 0; i < numBlocks; i++ {
+		block := <-blockDataChan
+		log.Print("RECEIVED BLOCK WITH LENGTH ", len(block))
+	}
+	close(blockIndexChan)
+	log.Print(requestCount)
+	log.Print(allRequests, failed)
 
 	return piece, nil
 }

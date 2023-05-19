@@ -3,6 +3,8 @@ package utils
 import (
 	"encoding/binary"
 	"io"
+	"log"
+	"net"
 )
 
 type messageID uint8
@@ -34,19 +36,37 @@ func (m Message) ToBytes() []byte {
 	return buffer
 }
 
-func ToMessage(r io.Reader) Message {
-	buffer := make([]byte, 4)
-	io.ReadFull(r, buffer)
-	length := binary.BigEndian.Uint32(buffer[0:4])
+func ToMessage(conn net.Conn) Message {
+	msgLength := make([]byte, 4)
+	if _, err := io.ReadFull(conn, msgLength); err != nil {
+		log.Print(err)
+		return Message{}
+	}
+	length := binary.BigEndian.Uint32(msgLength)
 
 	if length == 0 {
 		return Message{}
 	}
 
-	buffer = make([]byte, length)
-	io.ReadFull(r, buffer)
+	log.Print("RESPONSE LENGTH: ", length)
 
-	return Message{ID: messageID(buffer[0]), Payload: buffer[1:]}
+	msgId := make([]byte, 1)
+	if _, err := io.ReadFull(conn, msgId); err != nil {
+		log.Print(err)
+		return Message{}
+	}
+	id := msgId[0]
+	log.Print("RESPONSE ID: ", id)
+
+	if id > 8 {
+		log.Print("INVALID RESPONSE")
+		return Message{}
+	}
+
+	buffer := make([]byte, length)
+	io.ReadFull(conn, buffer)
+
+	return Message{ID: messageID(id), Payload: buffer}
 }
 
 func RequestMessage(index int, offset int, blockSize int) Message {
