@@ -29,7 +29,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	for _, peer := range peers {
+	log.Print("FOUND ", len(peers), " PEERS")
+
+	for _, peer := range peers[1:2] {
 		err = peer.Handshake(torrent)
 		if err != nil {
 			log.Print(err)

@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/binary"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -36,44 +37,46 @@ func (m Message) ToBytes() []byte {
 	return buffer
 }
 
-func ToMessage(conn net.Conn) Message {
+func ReadMessage(conn net.Conn) (Message, error) {
 	msgLength := make([]byte, 4)
 	if _, err := io.ReadFull(conn, msgLength); err != nil {
-		log.Print(err)
-		return Message{}
+		log.Print("Error reading message length: ", err)
+		return Message{}, err
 	}
 	length := binary.BigEndian.Uint32(msgLength)
-
-	if length == 0 {
-		return Message{}
-	}
-
-	log.Print("RESPONSE LENGTH: ", length)
+	log.Print(length)
 
 	msgId := make([]byte, 1)
 	if _, err := io.ReadFull(conn, msgId); err != nil {
-		log.Print(err)
-		return Message{}
+		log.Print("Error reading message ID: ", err)
+		return Message{}, err
 	}
 	id := msgId[0]
-	log.Print("RESPONSE ID: ", id)
 
 	if id > 8 {
-		log.Print("INVALID RESPONSE")
-		return Message{}
+		log.Fatal("Invalid message ID")
+		return Message{}, errors.New("Invalid message ID")
 	}
 
-	buffer := make([]byte, length)
-	io.ReadFull(conn, buffer)
+	log.Print("Received message with length ", length, " and ID ", id)
+	buffer := make([]byte, length-1)
+	if _, err := io.ReadFull(conn, buffer); err != nil {
+		log.Print("Error reading message body: ", err)
+		return Message{}, err
+	}
 
-	return Message{ID: messageID(id), Payload: buffer}
+	return Message{ID: messageID(id), Payload: buffer}, nil
 }
 
 func RequestMessage(index int, offset int, blockSize int) Message {
 	requestPayload := make([]byte, 12)
 	binary.BigEndian.PutUint32(requestPayload[0:4], uint32(index))
 	binary.BigEndian.PutUint32(requestPayload[4:8], uint32(offset))
-	binary.BigEndian.PutUint32(requestPayload[8:12], uint32(blockSize)) // 16KB
+	binary.BigEndian.PutUint32(requestPayload[8:12], uint32(blockSize))
 
 	return Message{ID: MsgRequest, Payload: requestPayload}
+}
+
+func InterestedMessage() Message {
+	return Message{ID: MsgInterested, Payload: make([]byte, 0)}
 }

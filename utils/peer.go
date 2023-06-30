@@ -3,10 +3,12 @@ package utils
 import (
 	"bytes"
 	"crypto/sha1"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"time"
 )
 
@@ -15,11 +17,12 @@ type Peer struct {
 	Port       uint16
 	Connection net.Conn
 	Bitfield   Bitfield
+	Choked     bool
 }
 
 func (peer *Peer) Handshake(torrent TorrentFile) error {
 	log.Print("HANDSHAKIN' WITH ", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
-	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port), time.Second)
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
 
 	if err != nil {
 		return err
@@ -38,7 +41,7 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 	copy(handshakePacket[48:68], peerID[:])              // peer ID
 
 	conn.Write(handshakePacket)
-	resp := make([]byte, 2048)
+	resp := make([]byte, 68)
 	_, err = conn.Read(resp)
 
 	if err != nil {
@@ -54,64 +57,66 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 
 	log.Print("GREAT HANDSHAKE SON")
 	peer.Connection = conn
+	peer.Choked = true
 
 	return nil
 }
 
-func (peer Peer) SendMessage(message Message) (Message, error) {
-	// log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
+func (peer Peer) SendMessage(message Message) error {
+	log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
 
 	_, err := peer.Connection.Write(message.ToBytes())
 	if err != nil {
 		log.Print(err)
-		return Message{}, err
+		return err
 	}
-	peer.Connection.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 
-	return ToMessage(peer.Connection), nil
+	return nil
 }
 
-func (peer Peer) GetPiece(index int, length int) ([]byte, error) {
+func (peer Peer) Flush() {
+	buffer := make([]byte, 2048)
+	peer.Connection.Read(buffer)
+	log.Print("FLUSHED: ", buffer)
+}
+
+func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 	blockDataChan := make(chan []byte)
 
-	piece := make([]byte, 0)
+	pieceSize := torrent.PieceLength
+	remainingBytes := torrent.Length - (index * torrent.PieceLength)
+	if remainingBytes < pieceSize {
+		pieceSize = remainingBytes
+	}
+
+	piece := make([]byte, pieceSize)
 	blockSize := 16384
-	numBlocks := length/blockSize + 1
-	log.Print(length, numBlocks, " BLOCKS")
-	requestCount := make(map[int]int)
-	allRequests := 0
-	failed := 0
+	numBlocks := 1 + (pieceSize-1)/blockSize
 
 	blockIndexChan := make(chan int, numBlocks+1)
 
 	for i := 0; i < 1; i++ {
 		go func() {
 			for {
-				then := time.Now()
 				blockIndex, more := <-blockIndexChan
-				requestCount[blockIndex] += 1
-				allRequests += 1
 
 				if !more {
 					return
 				}
 
-				requestMessage := RequestMessage(index, blockIndex, blockSize)
-				// log.Print(requestMessage.ToBytes())
-				responseMessage, err := peer.SendMessage(requestMessage)
-
-				if err != nil || responseMessage.ID != MsgPiece {
-					if err != nil {
-						log.Print(err)
-					}
-					failed += 1
-					blockIndexChan <- blockIndex
-					time_elapsed := time.Since(then)
-					log.Print("FAILURE TOOK ", time_elapsed, responseMessage.ID)
-					continue
+				remainingBytes := torrent.Length - ((index * torrent.PieceLength) + (blockIndex * blockSize))
+				if remainingBytes < blockSize {
+					blockSize = remainingBytes
 				}
 
-				blockDataChan <- responseMessage.Payload[8:]
+				peer.SendMessage(RequestMessage(index, blockIndex*blockSize, blockSize))
+				responseMessage, _ := ReadMessage(peer.Connection)
+				for responseMessage.ID != MsgPiece {
+					time.Sleep(time.Second)
+					responseMessage, _ = ReadMessage(peer.Connection)
+				}
+
+				blockDataChan <- responseMessage.Payload
 			}
 		}()
 	}
@@ -122,11 +127,11 @@ func (peer Peer) GetPiece(index int, length int) ([]byte, error) {
 
 	for i := 0; i < numBlocks; i++ {
 		block := <-blockDataChan
-		log.Print("RECEIVED BLOCK WITH LENGTH ", len(block))
+		offset := binary.BigEndian.Uint32(block[4:8])
+		copy(piece[offset:], block[8:])
 	}
+
 	close(blockIndexChan)
-	log.Print(requestCount)
-	log.Print(allRequests, failed)
 
 	return piece, nil
 }
@@ -138,22 +143,48 @@ func (peer Peer) Download(torrent TorrentFile) error {
 		Payload: bitfield,
 	}
 
-	peer.Connection.Write(bitfieldMessage.ToBytes())
-
-	bitfieldResponse, err := peer.SendMessage(bitfieldMessage)
+	peer.SendMessage(bitfieldMessage)
+	bitfieldResponse, err := ReadMessage(peer.Connection)
 	if err != nil {
 		return err
 	}
+	log.Print("BITFIELD RESPONSE: ", bitfieldResponse)
 
 	peer.Bitfield = bitfieldResponse.Payload
 
-	piece, err := peer.GetPiece(0, torrent.PieceLength)
-	if err != nil {
-		return err
+	peer.SendMessage(InterestedMessage())
+
+	for peer.Choked {
+		message, err := ReadMessage(peer.Connection)
+		if err != nil {
+			return err
+		}
+		if message.ID == 1 {
+			peer.Choked = false
+		}
 	}
 
-	log.Print(piece)
-	log.Print("PIECE LENGTH: ", len(piece))
+	download := make([]byte, torrent.Length)
+
+	for index, hash := range torrent.PieceHash {
+		log.Print("Attempting piece ", index)
+		piece, err := peer.GetPiece(index, torrent)
+		if err != nil {
+			return err
+		}
+
+		pieceHash := sha1.Sum(piece)
+		if hash != pieceHash {
+			log.Fatal("Invalid piece")
+		}
+
+		copy(download[(index*torrent.PieceLength):], piece)
+	}
+
+	err = os.WriteFile("final.pdf", download, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	return nil
 }
