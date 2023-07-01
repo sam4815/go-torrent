@@ -9,7 +9,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"time"
 )
 
 type Peer struct {
@@ -81,8 +80,6 @@ func (peer Peer) Flush() {
 }
 
 func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
-	blockDataChan := make(chan []byte)
-
 	pieceSize := torrent.PieceLength
 	remainingBytes := torrent.Length - (index * torrent.PieceLength)
 	if remainingBytes < pieceSize {
@@ -99,7 +96,6 @@ func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 		go func() {
 			for {
 				blockIndex, more := <-blockIndexChan
-
 				if !more {
 					return
 				}
@@ -110,13 +106,6 @@ func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 				}
 
 				peer.SendMessage(RequestMessage(index, blockIndex*blockSize, blockSize))
-				responseMessage, _ := ReadMessage(peer.Connection)
-				for responseMessage.ID != MsgPiece {
-					time.Sleep(time.Second)
-					responseMessage, _ = ReadMessage(peer.Connection)
-				}
-
-				blockDataChan <- responseMessage.Payload
 			}
 		}()
 	}
@@ -126,9 +115,9 @@ func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 	}
 
 	for i := 0; i < numBlocks; i++ {
-		block := <-blockDataChan
-		offset := binary.BigEndian.Uint32(block[4:8])
-		copy(piece[offset:], block[8:])
+		block, _ := ReadMessage(peer.Connection)
+		offset := binary.BigEndian.Uint32(block.Payload[4:8])
+		copy(piece[offset:], block.Payload[8:])
 	}
 
 	close(blockIndexChan)
@@ -181,7 +170,7 @@ func (peer Peer) Download(torrent TorrentFile) error {
 		copy(download[(index*torrent.PieceLength):], piece)
 	}
 
-	err = os.WriteFile("final.pdf", download, 0644)
+	err = os.WriteFile(fmt.Sprintf("%s.pdf", peer.IP.String()), download, 0644)
 	if err != nil {
 		log.Fatal(err)
 	}
