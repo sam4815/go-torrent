@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"log"
 	"net/url"
 	"os"
@@ -10,10 +11,13 @@ import (
 )
 
 func main() {
-	r, _ := os.Open("bayes.torrent")
-	defer r.Close()
+	filePtr := flag.String("file", "", "torrent file path")
+	flag.Parse()
 
-	reader := bufio.NewReader(r)
+	file, _ := os.Open(*filePtr)
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
 	benconded_torrent, err := utils.Open(reader)
 	if err != nil {
 		log.Fatal(err)
