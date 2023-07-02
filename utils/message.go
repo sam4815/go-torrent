@@ -44,7 +44,6 @@ func ReadMessage(conn net.Conn) (Message, error) {
 		return Message{}, err
 	}
 	length := binary.BigEndian.Uint32(msgLength)
-	log.Print(length)
 
 	msgId := make([]byte, 1)
 	if _, err := io.ReadFull(conn, msgId); err != nil {
@@ -58,7 +57,7 @@ func ReadMessage(conn net.Conn) (Message, error) {
 		return Message{}, errors.New("Invalid message ID")
 	}
 
-	log.Print("Received message with length ", length, " and ID ", id)
+	// log.Print("Received message with length ", length, " and ID ", id)
 	buffer := make([]byte, length-1)
 	if _, err := io.ReadFull(conn, buffer); err != nil {
 		log.Print("Error reading message body: ", err)

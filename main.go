@@ -22,26 +22,25 @@ func main() {
 	torrent := benconded_torrent.ToTorrentFile()
 	announceURL, _ := url.Parse(torrent.Announce)
 
-	t := utils.Tracker{AnnounceURL: announceURL}
+	tracker := utils.Tracker{AnnounceURL: announceURL}
 
-	peers, err := t.Announce(torrent)
+	peers, err := tracker.Announce(torrent)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	log.Print("FOUND ", len(peers), " PEERS")
+	download := utils.Download{
+		Peers:   peers,
+		Torrent: torrent,
+	}
 
-	for _, peer := range peers[1:2] {
-		err = peer.Handshake(torrent)
-		if err != nil {
-			log.Print(err)
-			continue
-		}
+	err = download.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-		err = peer.Download(torrent)
-		if err != nil {
-			log.Print(err)
-			continue
-		}
+	err = os.WriteFile(torrent.Name, download.File, 0644)
+	if err != nil {
+		log.Fatal(err)
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 )
 
 type Peer struct {
@@ -20,16 +19,13 @@ type Peer struct {
 }
 
 func (peer *Peer) Handshake(torrent TorrentFile) error {
-	log.Print("HANDSHAKIN' WITH ", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
 	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
 
 	if err != nil {
 		return err
 	}
 
-	// Protocol identifier
 	pstr := "BitTorrent protocol"
-	// Generate peer ID
 	peerID := sha1.Sum([]byte("-Tk8hj0wgej6ch"))
 
 	handshakePacket := make([]byte, 68)
@@ -54,7 +50,6 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 		return errors.New("invalid handshake response")
 	}
 
-	log.Print("GREAT HANDSHAKE SON")
 	peer.Connection = conn
 	peer.Choked = true
 
@@ -62,7 +57,7 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 }
 
 func (peer Peer) SendMessage(message Message) error {
-	log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
+	// log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
 
 	_, err := peer.Connection.Write(message.ToBytes())
 	if err != nil {
@@ -125,7 +120,7 @@ func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 	return piece, nil
 }
 
-func (peer Peer) Download(torrent TorrentFile) error {
+func (peer *Peer) AnnounceInterested(torrent TorrentFile) error {
 	bitfield := CreateBitfield(len(torrent.PieceHash))
 	bitfieldMessage := Message{
 		ID:      MsgBitfield,
@@ -137,7 +132,6 @@ func (peer Peer) Download(torrent TorrentFile) error {
 	if err != nil {
 		return err
 	}
-	log.Print("BITFIELD RESPONSE: ", bitfieldResponse)
 
 	peer.Bitfield = bitfieldResponse.Payload
 
@@ -148,31 +142,8 @@ func (peer Peer) Download(torrent TorrentFile) error {
 		if err != nil {
 			return err
 		}
-		if message.ID == 1 {
-			peer.Choked = false
-		}
-	}
 
-	download := make([]byte, torrent.Length)
-
-	for index, hash := range torrent.PieceHash {
-		log.Print("Attempting piece ", index)
-		piece, err := peer.GetPiece(index, torrent)
-		if err != nil {
-			return err
-		}
-
-		pieceHash := sha1.Sum(piece)
-		if hash != pieceHash {
-			log.Fatal("Invalid piece")
-		}
-
-		copy(download[(index*torrent.PieceLength):], piece)
-	}
-
-	err = os.WriteFile(fmt.Sprintf("%s.pdf", peer.IP.String()), download, 0644)
-	if err != nil {
-		log.Fatal(err)
+		peer.Choked = message.ID != 1
 	}
 
 	return nil
