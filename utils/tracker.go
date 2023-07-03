@@ -3,11 +3,11 @@ package utils
 import (
 	"encoding/binary"
 	"errors"
-	"log"
 	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 type Tracker struct {
@@ -30,7 +30,10 @@ func ParsePeers(peersBytes []byte) []Peer {
 }
 
 func (tracker *Tracker) AnnounceUDP(torrent TorrentFile) ([]Peer, error) {
-	conn, _ := net.Dial("udp", tracker.AnnounceURL.Host)
+	conn, err := net.DialTimeout("udp", tracker.AnnounceURL.Host, time.Second*2)
+	if err != nil {
+		return nil, err
+	}
 	defer conn.Close()
 
 	transactionID := rand.Uint32()
@@ -41,7 +44,7 @@ func (tracker *Tracker) AnnounceUDP(torrent TorrentFile) ([]Peer, error) {
 
 	conn.Write(connectPacket)
 	resp := make([]byte, 2048)
-	_, err := conn.Read(resp)
+	_, err = conn.Read(resp)
 
 	if err != nil {
 		return nil, err
@@ -60,7 +63,6 @@ func (tracker *Tracker) AnnounceUDP(torrent TorrentFile) ([]Peer, error) {
 	announceMessage.TransactionID = transactionID
 
 	announcePacket := announceMessage.ToBytes()
-	log.Print("LEN:", len(announcePacket))
 	conn.Write(announcePacket)
 	resp = make([]byte, 2048)
 	numBytes, _ := conn.Read(resp)
@@ -103,7 +105,7 @@ func (tracker Tracker) Announce(torrent TorrentFile) ([]Peer, error) {
 		return tracker.AnnounceUDP(torrent)
 	}
 
-	if tracker.AnnounceURL.Scheme == "https" {
+	if tracker.AnnounceURL.Scheme == "https" || tracker.AnnounceURL.Scheme == "http" {
 		return tracker.AnnounceTCP(torrent)
 	}
 
