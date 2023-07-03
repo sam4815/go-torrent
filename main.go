@@ -1,50 +1,52 @@
 package main
 
 import (
-	"bufio"
 	"flag"
+	"fmt"
 	"log"
-	"net/url"
 	"os"
+	"time"
 
 	"go-torrent/utils"
 )
 
 func main() {
-	filePtr := flag.String("file", "", "torrent file path")
+	filePath := flag.String("file", "", "torrent file path")
 	flag.Parse()
 
-	file, _ := os.Open(*filePtr)
+	file, err := os.Open(*filePath)
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer file.Close()
 
-	reader := bufio.NewReader(file)
-	benconded_torrent, err := utils.Open(reader)
+	torrent, err := utils.DecodeBencodedFile(file)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	torrent := benconded_torrent.ToTorrentFile()
-	announceURL, _ := url.Parse(torrent.Announce)
+	trackers := utils.NewTrackers(torrent.AnnounceList)
 
-	tracker := utils.Tracker{AnnounceURL: announceURL}
-
-	peers, err := tracker.Announce(torrent)
+	peers, err := trackers.Announce(torrent)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	download := utils.Download{
-		Peers:   peers,
-		Torrent: torrent,
+	download, err := utils.StartDownload(peers, torrent)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer download.Close()
+
+	for !download.Completed() {
+		time.Sleep(time.Second * 1)
+		fmt.Printf("\r%s", download.Progress())
 	}
 
-	err = download.Start()
+	err = download.WriteFiles()
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	err = os.WriteFile(torrent.Name, download.File, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
+	fmt.Printf("\r%s\n", download.Progress())
 }

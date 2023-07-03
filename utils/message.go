@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"log"
 	"net"
 	"time"
 )
@@ -67,7 +66,7 @@ func ReadMessage(conn net.Conn) (Message, error) {
 	// log.Print("Received message with length ", length, " and ID ", id)
 	buffer := make([]byte, length-1)
 	if _, err := io.ReadFull(conn, buffer); err != nil {
-		log.Print("Error reading message body: ", err)
+		// log.Print("Error reading message body: ", err)
 		return Message{}, err
 	}
 

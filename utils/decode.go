@@ -1,24 +1,33 @@
 package utils
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/sha1"
 	"io"
 	"log"
+	"os"
 
 	"github.com/jackpal/bencode-go"
 )
 
+type BencodeFile struct {
+	Length int      `bencode:"length"`
+	Path   []string `beconde:"path"`
+}
+
 type BencodeInfo struct {
-	Pieces      string `bencode:"pieces"`
-	PieceLength int    `bencode:"piece length"`
-	Length      int    `bencode:"length"`
-	Name        string `bencode:"name"`
+	Files       []BencodeFile `bencode:"files"`
+	Pieces      string        `bencode:"pieces"`
+	PieceLength int           `bencode:"piece length"`
+	Length      int           `bencode:"length"`
+	Name        string        `bencode:"name"`
 }
 
 type BencodeTorrent struct {
-	Announce string      `bencode:"announce"`
-	Info     BencodeInfo `bencode:"info"`
+	Announce     string      `bencode:"announce"`
+	AnnounceList [][]string  `bencode:"announce-list"`
+	Info         BencodeInfo `bencode:"info"`
 }
 
 type BencodePeer struct {
@@ -31,25 +40,46 @@ type BencodeAnnounce struct {
 	Peers    []BencodePeer `bencode:"peers"`
 }
 
-type TorrentFile struct {
-	Announce    string
-	InfoHash    [20]byte
-	PieceHash   [][20]byte
-	PieceLength int
-	Length      int
-	Name        string
+type File struct {
+	Length int
+	Path   []string
 }
 
-func Open(r io.Reader) (*BencodeTorrent, error) {
+type TorrentFile struct {
+	AnnounceList []string
+	InfoHash     [20]byte
+	PieceHash    [][20]byte
+	PieceLength  int
+	Length       int
+	Name         string
+	Files        []File
+}
+
+func DecodeBencodedFile(file *os.File) (TorrentFile, error) {
+	reader := bufio.NewReader(file)
+
+	var infoBuffer bytes.Buffer
+	fileReader := io.TeeReader(reader, &infoBuffer)
+
 	bto := BencodeTorrent{}
-	err := bencode.Unmarshal(r, &bto)
+	err := bencode.Unmarshal(fileReader, &bto)
 
 	if err != nil {
-		log.Fatal(err)
-		return nil, err
+		return TorrentFile{}, err
 	}
 
-	return &bto, nil
+	torrent := bto.ToTorrentFile()
+
+	decoded, _ := bencode.Decode(bufio.NewReader(&infoBuffer))
+
+	if decodedMap, ok := decoded.(map[string]any); ok {
+		var infoBuffer bytes.Buffer
+		bencode.Marshal(&infoBuffer, decodedMap["info"])
+
+		torrent.InfoHash = sha1.Sum(infoBuffer.Bytes())
+	}
+
+	return torrent, nil
 }
 
 func Announce(r io.Reader) (*BencodeAnnounce, error) {
@@ -72,15 +102,24 @@ func (b BencodeTorrent) ToTorrentFile() TorrentFile {
 		hashes = append(hashes, hash)
 	}
 
-	var infoBuffer bytes.Buffer
-	bencode.Marshal(&infoBuffer, b.Info)
+	announceList := []string{b.Announce}
+	for _, announceUrl := range b.AnnounceList {
+		announceList = append(announceList, announceUrl...)
+	}
+
+	length := b.Info.Length
+	files := make([]File, 0)
+	for _, file := range b.Info.Files {
+		files = append(files, File(file))
+		length += file.Length
+	}
 
 	return TorrentFile{
-		Announce:    b.Announce,
-		PieceLength: b.Info.PieceLength,
-		Length:      b.Info.Length,
-		Name:        b.Info.Name,
-		InfoHash:    sha1.Sum(infoBuffer.Bytes()),
-		PieceHash:   hashes,
+		Name:         b.Info.Name,
+		PieceLength:  b.Info.PieceLength,
+		AnnounceList: announceList,
+		Length:       length,
+		PieceHash:    hashes,
+		Files:        files,
 	}
 }
