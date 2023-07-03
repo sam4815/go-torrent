@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"time"
 )
 
 type messageID uint8
@@ -38,23 +39,29 @@ func (m Message) ToBytes() []byte {
 }
 
 func ReadMessage(conn net.Conn) (Message, error) {
+	conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+
 	msgLength := make([]byte, 4)
 	if _, err := io.ReadFull(conn, msgLength); err != nil {
-		log.Print("Error reading message length: ", err)
+		// log.Print("Error reading message length: ", err)
 		return Message{}, err
 	}
 	length := binary.BigEndian.Uint32(msgLength)
 
 	msgId := make([]byte, 1)
 	if _, err := io.ReadFull(conn, msgId); err != nil {
-		log.Print("Error reading message ID: ", err)
+		// log.Print("Error reading message ID: ", err)
 		return Message{}, err
 	}
-	id := msgId[0]
+	id := messageID(msgId[0])
+
+	if id == MsgChoke || id == MsgUnchoke {
+		time.Sleep(time.Second)
+		return ReadMessage(conn)
+	}
 
 	if id > 8 {
-		log.Fatal("Invalid message ID")
-		return Message{}, errors.New("Invalid message ID")
+		return Message{}, errors.New("invalid message ID")
 	}
 
 	// log.Print("Received message with length ", length, " and ID ", id)

@@ -6,8 +6,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log"
 	"net"
+	"time"
 )
 
 type Peer struct {
@@ -15,11 +15,10 @@ type Peer struct {
 	Port       uint16
 	Connection net.Conn
 	Bitfield   Bitfield
-	Choked     bool
 }
 
 func (peer *Peer) Handshake(torrent TorrentFile) error {
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port))
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("%s:%d", peer.IP, peer.Port), time.Second*3)
 
 	if err != nil {
 		return err
@@ -51,7 +50,6 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 	}
 
 	peer.Connection = conn
-	peer.Choked = true
 
 	return nil
 }
@@ -61,17 +59,10 @@ func (peer Peer) SendMessage(message Message) error {
 
 	_, err := peer.Connection.Write(message.ToBytes())
 	if err != nil {
-		log.Print(err)
 		return err
 	}
 
 	return nil
-}
-
-func (peer Peer) Flush() {
-	buffer := make([]byte, 2048)
-	peer.Connection.Read(buffer)
-	log.Print("FLUSHED: ", buffer)
 }
 
 func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
@@ -95,12 +86,13 @@ func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 					return
 				}
 
-				remainingBytes := torrent.Length - ((index * torrent.PieceLength) + (blockIndex * blockSize))
-				if remainingBytes < blockSize {
-					blockSize = remainingBytes
+				offset := blockIndex * blockSize
+				remainingBlockBytes := remainingBytes - offset
+				if remainingBlockBytes < blockSize {
+					blockSize = remainingBlockBytes
 				}
 
-				peer.SendMessage(RequestMessage(index, blockIndex*blockSize, blockSize))
+				peer.SendMessage(RequestMessage(index, offset, blockSize))
 			}
 		}()
 	}
@@ -110,9 +102,17 @@ func (peer Peer) GetPiece(index int, torrent TorrentFile) ([]byte, error) {
 	}
 
 	for i := 0; i < numBlocks; i++ {
-		block, _ := ReadMessage(peer.Connection)
-		offset := binary.BigEndian.Uint32(block.Payload[4:8])
-		copy(piece[offset:], block.Payload[8:])
+		message, err := ReadMessage(peer.Connection)
+		if err != nil {
+			return nil, err
+		}
+
+		if message.ID != MsgPiece {
+			return nil, errors.New("failed to receive piece message")
+		}
+
+		offset := binary.BigEndian.Uint32(message.Payload[4:8])
+		copy(piece[offset:], message.Payload[8:])
 	}
 
 	close(blockIndexChan)
@@ -136,15 +136,6 @@ func (peer *Peer) AnnounceInterested(torrent TorrentFile) error {
 	peer.Bitfield = bitfieldResponse.Payload
 
 	peer.SendMessage(InterestedMessage())
-
-	for peer.Choked {
-		message, err := ReadMessage(peer.Connection)
-		if err != nil {
-			return err
-		}
-
-		peer.Choked = message.ID != 1
-	}
 
 	return nil
 }
