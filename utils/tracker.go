@@ -43,7 +43,9 @@ func (tracker *Tracker) AnnounceUDP(torrent TorrentFile) ([]Peer, error) {
 	binary.BigEndian.PutUint32(connectPacket[12:16], transactionID) // random transaction ID
 
 	conn.Write(connectPacket)
+
 	resp := make([]byte, 2048)
+	conn.SetReadDeadline(time.Now().Add(time.Second))
 	_, err = conn.Read(resp)
 
 	if err != nil {
@@ -79,8 +81,10 @@ func (tracker *Tracker) AnnounceUDP(torrent TorrentFile) ([]Peer, error) {
 
 func (tracker Tracker) AnnounceTCP(torrent TorrentFile) ([]Peer, error) {
 	tracker.AnnounceURL.RawQuery = GenerateAnnounceMessage(torrent).ToQueryParams()
-
-	httpResp, err := http.Get(tracker.AnnounceURL.String())
+	client := http.Client{
+		Timeout: 1 * time.Second,
+	}
+	httpResp, err := client.Get(tracker.AnnounceURL.String())
 	if err != nil {
 		return nil, err
 	}
