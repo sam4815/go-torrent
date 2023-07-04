@@ -11,7 +11,6 @@ type Download struct {
 	Peers              []Peer
 	NumConnectedPeers  int
 	Torrent            TorrentFile
-	Blob               []byte
 	CompletedPieceHash [][20]byte
 	PieceIndexChan     chan int
 }
@@ -20,7 +19,6 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 	download := &Download{
 		Peers:          peers,
 		Torrent:        torrent,
-		Blob:           make([]byte, torrent.Length),
 		PieceIndexChan: make(chan int, 50),
 	}
 
@@ -66,7 +64,13 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 					continue
 				}
 
-				copy(download.Blob[(pieceIndex*download.Torrent.PieceLength):], piece)
+				err = download.WriteAt(pieceIndex*download.Torrent.PieceLength, piece)
+				if err != nil {
+					// log.Print("Error writing piece: ", err, peer.IP.String(), pieceIndex)
+					download.PieceIndexChan <- pieceIndex
+					continue
+				}
+
 				download.CompletedPieceHash = append(download.CompletedPieceHash, pieceHash)
 			}
 		}(peer, download)
@@ -102,30 +106,63 @@ func (download Download) Close() {
 	close(download.PieceIndexChan)
 }
 
-func (download Download) WriteFiles() error {
-	if len(download.Torrent.Files) == 0 {
-		err := os.WriteFile(download.Torrent.Name, download.Blob, 0644)
+func WriteAtFile(path []string, offset int, fileBytes []byte) error {
+	fileDir := strings.Join(path[:len(path)-1], "/")
+	filePath := strings.Join(path, "/")
 
+	if len(fileDir) > 0 {
+		err := os.MkdirAll(fileDir, os.ModePerm)
 		if err != nil {
 			return err
 		}
-	} else {
-		blobOffset := 0
+	}
 
-		for _, file := range download.Torrent.Files {
-			path := strings.Join(append([]string{download.Torrent.Name}, file.Path...), "/")
-			folderPath := strings.Join(append([]string{download.Torrent.Name}, file.Path[:len(file.Path)-1]...), "/")
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY, os.ModePerm)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
 
-			blobSlice := download.Blob[blobOffset:(blobOffset + file.Length)]
-			blobOffset += file.Length
+	_, err = file.WriteAt(fileBytes, int64(offset))
+	if err != nil {
+		return err
+	}
 
-			os.MkdirAll(folderPath, os.ModePerm)
-			err := os.WriteFile(path, blobSlice, 0644)
+	return nil
+}
 
+func (download Download) WriteAt(offset int, piece []byte) error {
+	if len(download.Torrent.Files) == 0 {
+		err := WriteAtFile([]string{download.Torrent.Name}, offset, piece)
+		return err
+	}
+
+	fileOffset := 0
+
+	for _, file := range download.Torrent.Files {
+		filePath := append([]string{download.Torrent.Name}, file.Path...)
+		fileMin := fileOffset
+		fileMax := fileMin + file.Length
+
+		pieceBeginsInFile := fileMin <= offset && offset < fileMax
+		pieceEndsInFile := fileMin <= (offset+len(piece)) && (offset+len(piece)) < fileMax
+
+		if pieceBeginsInFile && pieceEndsInFile {
+			err := WriteAtFile(filePath, offset-fileMin, piece)
+			return err
+		}
+
+		if pieceBeginsInFile {
+			pieceLength := fileMax - offset
+			err := WriteAtFile(filePath, offset-fileMin, piece[:pieceLength])
 			if err != nil {
 				return err
 			}
+
+			return download.WriteAt(offset+pieceLength, piece[pieceLength:])
 		}
+
+		fileOffset += file.Length
 	}
 
 	return nil

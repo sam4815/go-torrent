@@ -39,13 +39,8 @@ func main() {
 	defer download.Close()
 
 	for !download.Completed() {
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Millisecond * 250)
 		fmt.Printf("\r%s", download.Progress())
-	}
-
-	err = download.WriteFiles()
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	fmt.Printf("\r%s\n", download.Progress())
