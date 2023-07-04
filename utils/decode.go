@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/sha1"
 	"io"
-	"log"
 	"os"
 
 	"github.com/jackpal/bencode-go"
@@ -87,7 +86,6 @@ func Announce(r io.Reader) (*BencodeAnnounce, error) {
 	err := bencode.Unmarshal(r, &ba)
 
 	if err != nil {
-		log.Fatal(err)
 		return nil, err
 	}
 
