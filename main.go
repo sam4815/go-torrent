@@ -40,6 +40,5 @@ func main() {
 	display := utils.StartDisplay(download, time.Millisecond*100)
 	defer display.Close()
 
-	for !download.Completed() {
-	}
+	<-download.Completed
 }

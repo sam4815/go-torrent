@@ -12,6 +12,7 @@ type Download struct {
 	Torrent            TorrentFile
 	CompletedPieceHash [][20]byte
 	PieceIndexChan     chan int
+	Completed          chan bool
 }
 
 func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
@@ -20,6 +21,7 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 		Torrent:            torrent,
 		PieceIndexChan:     make(chan int, 50),
 		ConnectedCountries: make([]string, 0),
+		Completed:          make(chan bool, 1),
 	}
 
 	for _, peer := range download.Peers {
@@ -72,6 +74,10 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 				}
 
 				download.CompletedPieceHash = append(download.CompletedPieceHash, pieceHash)
+
+				if len(download.CompletedPieceHash) == len(download.Torrent.PieceHash) {
+					download.Completed <- true
+				}
 			}
 		}(peer, download)
 	}
@@ -83,10 +89,6 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 	}()
 
 	return download, nil
-}
-
-func (download Download) Completed() bool {
-	return len(download.CompletedPieceHash) == len(download.Torrent.PieceHash)
 }
 
 func (download Download) Close() {
