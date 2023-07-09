@@ -2,7 +2,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"time"
@@ -16,32 +15,31 @@ func main() {
 
 	file, err := os.Open(*filePath)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error opening file: ", err)
 	}
 	defer file.Close()
 
 	torrent, err := utils.DecodeBencodedFile(file)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error decoding file: ", err)
 	}
 
 	trackers := utils.NewTrackers(torrent.AnnounceList)
 
 	peers, err := trackers.Announce(torrent)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error retrieving peers: ", err)
 	}
 
 	download, err := utils.StartDownload(peers, torrent)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Error initiating download: ", err)
 	}
 	defer download.Close()
 
-	for !download.Completed() {
-		time.Sleep(time.Millisecond * 250)
-		fmt.Printf("\r%s", download.Progress())
-	}
+	display := utils.StartDisplay(download, time.Millisecond*100)
+	defer display.Close()
 
-	fmt.Printf("\r%s\n", download.Progress())
+	for !download.Completed() {
+	}
 }

@@ -2,14 +2,13 @@ package utils
 
 import (
 	"crypto/sha1"
-	"fmt"
 	"os"
 	"strings"
 )
 
 type Download struct {
 	Peers              []Peer
-	NumConnectedPeers  int
+	ConnectedCountries []string
 	Torrent            TorrentFile
 	CompletedPieceHash [][20]byte
 	PieceIndexChan     chan int
@@ -17,9 +16,10 @@ type Download struct {
 
 func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 	download := &Download{
-		Peers:          peers,
-		Torrent:        torrent,
-		PieceIndexChan: make(chan int, 50),
+		Peers:              peers,
+		Torrent:            torrent,
+		PieceIndexChan:     make(chan int, 50),
+		ConnectedCountries: make([]string, 0),
 	}
 
 	for _, peer := range download.Peers {
@@ -36,7 +36,7 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 				return
 			}
 
-			download.NumConnectedPeers += 1
+			download.ConnectedCountries = append(download.ConnectedCountries, GetCountryCode(peer))
 
 			for {
 				pieceIndex, more := <-download.PieceIndexChan
@@ -87,19 +87,6 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 
 func (download Download) Completed() bool {
 	return len(download.CompletedPieceHash) == len(download.Torrent.PieceHash)
-}
-
-func (download Download) Progress() string {
-	percentComplete := float64(len(download.CompletedPieceHash)) / float64(len(download.Torrent.PieceHash))
-
-	progressBarSize := 40
-	numCompletedBlocks := int(percentComplete * float64(progressBarSize))
-	numEmptyBlocks := progressBarSize - numCompletedBlocks
-
-	completedBlocks := strings.Repeat("█", numCompletedBlocks)
-	emptyBlocks := strings.Repeat(" ", numEmptyBlocks)
-
-	return fmt.Sprintf("[%s%s] %.2f %% // Connected to %d peers", completedBlocks, emptyBlocks, percentComplete*100, download.NumConnectedPeers)
 }
 
 func (download Download) Close() {
