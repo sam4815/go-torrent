@@ -20,18 +20,14 @@ func main() {
 		log.Fatal("Error decoding file: ", err)
 	}
 
-	trackers := utils.NewTrackers(torrent.AnnounceList)
-
-	peers, err := trackers.Announce(torrent)
-	if err != nil {
-		log.Fatal("Error retrieving peers: ", err)
-	}
-
-	download, err := utils.StartDownload(peers, torrent)
+	download, err := utils.StartDownload(torrent)
 	if err != nil {
 		log.Fatal("Error initiating download: ", err)
 	}
 	defer download.Close()
+
+	trackers := utils.NewTrackers(torrent.AnnounceList)
+	trackers.Announce(torrent, download)
 
 	display := utils.StartDisplay(download, time.Millisecond*100)
 	defer display.Close()

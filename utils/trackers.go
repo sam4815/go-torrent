@@ -2,6 +2,7 @@ package utils
 
 import (
 	"net/url"
+	"sync"
 )
 
 type Trackers []Tracker
@@ -22,35 +23,25 @@ func NewTrackers(announceList []string) Trackers {
 	return trackers
 }
 
-func (trackers Trackers) Announce(torrent TorrentFile) ([]Peer, error) {
-	peersChan := make(chan []Peer, 1)
+func (trackers Trackers) Announce(torrent TorrentFile, download *Download) {
 	peersMap := make(map[string]Peer)
+	peersMapLock := sync.Mutex{}
 
 	for _, tracker := range trackers {
 		go func(tracker Tracker, torrent TorrentFile) {
 			peers, err := tracker.Announce(torrent)
 			if err != nil {
-				peersChan <- make([]Peer, 0)
+				Debugf("Error connecting to tracker %s: %s", tracker.AnnounceURL, err)
 				return
 			}
 
-			peersChan <- peers
+			for _, peer := range peers {
+				peersMapLock.Lock()
+				peersMap[peer.IP.String()] = peer
+				peersMapLock.Unlock()
+
+				go download.AddPeer(peer)
+			}
 		}(tracker, torrent)
 	}
-
-	for range trackers {
-		peers := <-peersChan
-
-		for _, peer := range peers {
-			peersMap[peer.IP.String()] = peer
-		}
-	}
-
-	peers := make([]Peer, 0)
-
-	for _, peer := range peersMap {
-		peers = append(peers, peer)
-	}
-
-	return peers, nil
 }
