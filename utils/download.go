@@ -122,14 +122,14 @@ func WriteAtFile(path []string, offset int, fileBytes []byte) error {
 
 func (download Download) WriteAt(offset int, piece []byte) error {
 	if len(download.Torrent.Files) == 0 {
-		err := WriteAtFile([]string{download.Torrent.Name}, offset, piece)
+		err := WriteAtFile([]string{"downloads", download.Torrent.Name}, offset, piece)
 		return err
 	}
 
 	fileOffset := 0
 
 	for _, file := range download.Torrent.Files {
-		filePath := append([]string{download.Torrent.Name}, file.Path...)
+		filePath := append([]string{"downloads", download.Torrent.Name}, file.Path...)
 		fileMin := fileOffset
 		fileMax := fileMin + file.Length
 
