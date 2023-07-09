@@ -43,8 +43,7 @@ func StartDisplay(download *Download, timeout time.Duration) Display {
 		os.Exit(1)
 	}()
 
-	// Hide cursor, create space, and position cursor in the middle
-	fmt.Printf("\033[?25l\n\n")
+	fmt.Printf("\033[?25l")
 
 	go func() {
 		for {
@@ -65,7 +64,11 @@ func StartDisplay(download *Download, timeout time.Duration) Display {
 }
 
 func (display Display) Print() {
-	fmt.Printf("\033[F%s %s\n", ProgressBar(display.Download), Countries(display.Download))
+	if GetDebug() {
+		fmt.Print(strings.Join(FlushLogs(), "\n"))
+	}
+
+	fmt.Printf("\n%s %s\n\033[F\033[F", ProgressBar(display.Download), Countries(display.Download))
 }
 
 func (display Display) Close() {

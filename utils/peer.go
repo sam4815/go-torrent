@@ -55,7 +55,7 @@ func (peer *Peer) Handshake(torrent TorrentFile) error {
 }
 
 func (peer Peer) SendMessage(message Message) error {
-	// log.Print(message.ID, len(message.Payload), len(message.ToBytes()), message.ToBytes())
+	Debugf("Sending message with length %d and ID %d to peer with IP %s", len(message.Payload), message.ID, peer.IP)
 
 	_, err := peer.Connection.Write(message.ToBytes())
 	if err != nil {

@@ -28,13 +28,13 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 		go func(peer Peer, download *Download) {
 			err := peer.Handshake(download.Torrent)
 			if err != nil {
-				// log.Print("Handshake failed: ", peer.IP.String())
+				Debugf("Handshake failed: %s", peer.IP.String())
 				return
 			}
 
 			err = peer.AnnounceInterested(download.Torrent)
 			if err != nil {
-				// log.Print("Failed to initiate download: ", peer.IP.String())
+				Debugf("Failed to initiate download: %s", peer.IP.String())
 				return
 			}
 
@@ -51,24 +51,28 @@ func StartDownload(peers []Peer, torrent TorrentFile) (*Download, error) {
 					continue
 				}
 
-				// log.Printf("Requesting piece with index %d from peer with IP %s", pieceIndex, peer.IP.String())
+				Debugf("Requesting piece with index %d from peer with IP %s", pieceIndex, peer.IP.String())
+
 				piece, err := peer.GetPiece(pieceIndex, download.Torrent)
 				if err != nil {
-					// log.Print("Error requesting piece: ", err)
+					Debugf("Error requesting piece: %s", err)
+
 					download.PieceIndexChan <- pieceIndex
 					continue
 				}
 
 				pieceHash := sha1.Sum(piece)
 				if download.Torrent.PieceHash[pieceIndex] != pieceHash {
-					// log.Print("Invalid piece: ", peer.IP.String(), pieceIndex)
+					Debugf("Invalid piece from IP %s with index %d", peer.IP.String(), pieceIndex)
+
 					download.PieceIndexChan <- pieceIndex
 					continue
 				}
 
 				err = download.WriteAt(pieceIndex*download.Torrent.PieceLength, piece)
 				if err != nil {
-					// log.Print("Error writing piece: ", err, peer.IP.String(), pieceIndex)
+					Debugf("Error writing piece from IP %s with index %d: %s", peer.IP.String(), pieceIndex, err)
+
 					download.PieceIndexChan <- pieceIndex
 					continue
 				}

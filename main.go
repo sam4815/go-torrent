@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"time"
@@ -10,10 +9,7 @@ import (
 )
 
 func main() {
-	filePath := flag.String("file", "", "torrent file path")
-	flag.Parse()
-
-	file, err := os.Open(*filePath)
+	file, err := os.Open(utils.GetFilePath())
 	if err != nil {
 		log.Fatal("Error opening file: ", err)
 	}
