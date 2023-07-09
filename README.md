@@ -2,7 +2,7 @@
 
 
 
-https://github.com/sam4815/go-torrent/assets/32017929/be3315f4-7ffc-476d-9f34-668b048dbe62
+https://github.com/sam4815/go-torrent/assets/32017929/49de070c-d72e-42ea-b597-d6bf17e6c183
 
 
 
